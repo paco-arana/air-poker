@@ -34,9 +34,10 @@ export const CATEGORY_RANK: Record<HandCategory, number> = {
 };
 
 /**
- * For this project ranks are 1..13 (A..K).
- * We compare ranks normally: higher number = stronger (K=13 strongest).
+ * Ranks are 1..13 (A..K).
+ * For hand comparison tie-breakers, Ace is HIGH (14).
+ * (Straights are handled separately in analyze.ts to allow A2345.)
  */
 export function rankStrength(r: Rank): number {
-  return r;
+  return r === 1 ? 14 : r;
 }

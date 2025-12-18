@@ -6,24 +6,21 @@ export interface HandAnalysis {
   cards: readonly Card[];
 
   // ranks and suits
-  ranks: Rank[]; // length 5
-  suits: Suit[]; // length 5
+  ranks: Rank[];
+  suits: Suit[];
 
   // counts
   rankCounts: Map<Rank, number>;
   suitCounts: Map<Suit, number>;
 
   // derived
-  uniqueRanksDesc: number[]; // unique rank strengths sorted high->low
-  groupsDesc: Array<{ count: number; rank: number }>; // count desc, then rank desc
+  uniqueRanksDesc: number[];
+  groupsDesc: Array<{ count: number; rank: number }>;
   isFlush: boolean;
   isStraight: boolean;
-  straightHigh: number | null; // highest rank strength in the straight (A2345 => 5)
+  straightHigh: number | null; // A2345 => 5, TJQKA => 14
 }
 
-/**
- * Analyze the 5 cards once; all detectors share this.
- */
 export function analyze(cards: readonly Card[]): HandAnalysis {
   const ranks = cards.map((c) => c.rank);
   const suits = cards.map((c) => c.suit);
@@ -36,18 +33,18 @@ export function analyze(cards: readonly Card[]): HandAnalysis {
 
   const isFlush = Array.from(suitCounts.values()).some((v) => v === 5);
 
-  const uniqueStrengths = Array.from(rankCounts.keys()).map((r) =>
-    rankStrength(r)
-  );
+  const uniqueRanks = Array.from(rankCounts.keys()); // RAW ranks (1..13)
+  const uniqueStrengths = uniqueRanks.map((r) => rankStrength(r)); // Ace => 14
+
   uniqueStrengths.sort((a, b) => b - a);
   const uniqueRanksDesc = uniqueStrengths;
 
-  // groups sorted by (count desc, rank desc)
   const groupsDesc = Array.from(rankCounts.entries())
-    .map(([r, count]) => ({ count, rank: rankStrength(r) }))
+    .map(([r, count]) => ({ count, rank: rankStrength(r) })) // Ace => 14
     .sort((a, b) => b.count - a.count || b.rank - a.rank);
 
-  const { isStraight, straightHigh } = computeStraight(uniqueStrengths);
+  // ✅ IMPORTANT: compute straight using raw ranks, not strengths
+  const { isStraight, straightHigh } = computeStraight(uniqueRanks);
 
   return {
     cards,
@@ -63,16 +60,16 @@ export function analyze(cards: readonly Card[]): HandAnalysis {
   };
 }
 
-function computeStraight(uniqueStrengths: number[]): {
+function computeStraight(uniqueRanks: Rank[]): {
   isStraight: boolean;
   straightHigh: number | null;
 } {
-  if (uniqueStrengths.length !== 5)
+  if (uniqueRanks.length !== 5)
     return { isStraight: false, straightHigh: null };
 
-  const asc = [...uniqueStrengths].sort((a, b) => a - b);
+  const asc = [...uniqueRanks].sort((a, b) => a - b); // RAW ranks: Ace=1
 
-  // A2345 special case: [1,2,3,4,5] => high=5
+  // A2345
   const wheel =
     asc[0] === 1 &&
     asc[1] === 2 &&
@@ -81,27 +78,21 @@ function computeStraight(uniqueStrengths: number[]): {
     asc[4] === 5;
   if (wheel) return { isStraight: true, straightHigh: 5 };
 
-  // Normal consecutive check helper
-  const isConsecutive = (arr: number[]) => {
-    for (let i = 1; i < arr.length; i++) {
-      if (arr[i] !== arr[i - 1] + 1) return false;
-    }
-    return true;
-  };
+  // TJQKA (10,11,12,13,1) => high is Ace(14)
+  const broadway =
+    asc[0] === 1 &&
+    asc[1] === 10 &&
+    asc[2] === 11 &&
+    asc[3] === 12 &&
+    asc[4] === 13;
+  if (broadway) return { isStraight: true, straightHigh: 14 };
 
-  // Normal straight (no Ace-high remap)
-  if (isConsecutive(asc)) {
-    return { isStraight: true, straightHigh: asc[4] };
-  }
-
-  // Ace-high straight (10-J-Q-K-A): treat Ace(1) as 14 for straight detection
-  if (asc[0] === 1) {
-    const aceHighAsc = asc.map((v) => (v === 1 ? 14 : v)).sort((a, b) => a - b);
-
-    if (isConsecutive(aceHighAsc)) {
-      return { isStraight: true, straightHigh: 14 }; // Broadway is highest straight
+  // Normal consecutive (no Ace involved)
+  for (let i = 1; i < asc.length; i++) {
+    if (asc[i] !== asc[i - 1] + 1) {
+      return { isStraight: false, straightHigh: null };
     }
   }
 
-  return { isStraight: false, straightHigh: null };
+  return { isStraight: true, straightHigh: asc[4] }; // 6-high straight => 6, K-high => 13
 }
